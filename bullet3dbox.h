@@ -27,10 +27,12 @@ public:
         return my_node;
     }
 
+
 private slots:
 
 
 private:
+    static QGLSceneNode* getGlobalNode();
     static QGLSceneNode* my_globalNode;
     btCollisionShape* my_fallShape;
     GLNodeMotionState* my_boxMotionState;

@@ -9,6 +9,7 @@
 #include <Qt3D/QGLSceneNode>
 #include <Qt3D/QGLMaterial>
 #include <Qt3D/QGLShaderProgramEffect>
+#include <Qt3D/QGLSubsurface>
 
 #include <bullet/btBulletDynamicsCommon.h>
 
@@ -34,14 +35,18 @@ protected:
     virtual void initializeGL(QGLPainter *painter);
     virtual void earlyPaintGL(QGLPainter *painter);
     virtual void paintGL(QGLPainter *painter);
+    virtual void resizeGL(int w, int h);
+    virtual void keyPressEvent(QKeyEvent *);
+    virtual void keyReleaseEvent(QKeyEvent *);
+
+    void drawMainSurface(QGLPainter*);
+    void drawSubSurface(QGLPainter*);
 
 private slots:
 #ifdef COUNT_FPS
     void resetFps();
 #endif
 private:
-
-
     void initPhysicWorld();
     void startPhysicWorld();
     void spawnBoxContainer();
@@ -49,6 +54,14 @@ private:
     static void physicWorldTickCallBack(btDynamicsWorld *world, btScalar timeStep);
 
     void depthSortVisibleObjects(QGLPainter*);
+
+    //Camera
+
+    QGLCamera* my_cam1;
+    QGLCamera* my_cam2;
+
+    //Viewports
+    QGLSubsurface* my_subSurface;
 
     //World
     btBroadphaseInterface* my_broadphase;
@@ -64,6 +77,7 @@ private:
 
     //Nodes Unsorted/sorted containers
     QVector<Bullet3DBox*> my_nodes;
+
     QMultiMap<qreal,QGLSceneNode*> my_zSortedVisibleGLNodes;
 
     //Materials & shaders

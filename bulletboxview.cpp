@@ -5,12 +5,11 @@
 #include <Qt3D/QGLBuilder>
 #include <Qt3D/QGLCube>
 
-
 #include <Qt3D/QGLPainter>
 
 #include <Qt3D/QPlane3D>
 
-#include <QTimer>
+#include <QtCore/QTimer>
 
 #include <QtGui/QWindow>
 
@@ -22,9 +21,14 @@
 
 #include <Qt3D/QGLFramebufferObjectSurface>
 
+#include <Qt3D/QGLWindowSurface>
+
+#include <QtGui/QKeyEvent>
+
 #include <QDebug>
 
 #define HALF_BOXCONTAINER_SIZE 20
+#define HALF_BOXCONTAINER_THICKNESS 5
 
 BulletBoxView::BulletBoxView(const QSurfaceFormat &format, QWindow *parent) :
     QGLView(format,parent),
@@ -42,16 +46,27 @@ BulletBoxView::BulletBoxView(const QSurfaceFormat &format, QWindow *parent) :
     my_groundNode(nullptr),
     my_mat(new QGLMaterial),
     my_shader(nullptr),
+    my_subSurface(nullptr),
     my_spinAngle(0.0f),
     my_lastTimeStamp(QDateTime::currentMSecsSinceEpoch())
 {
     setSurfaceType(QWindow::OpenGLSurface);
 
     //Debug Cam
-    camera()->setFarPlane(9999);
-    camera()->setEye(QVector3D(0,0,120));
-    camera()->setUpVector(QVector3D(0,1,0));
-    camera()->setCenter(QVector3D(0,0,0));
+    my_cam1 =  new QGLCamera(this);
+    my_cam1->setFarPlane(9999);
+    my_cam1->setEye(QVector3D(0,0,120));
+    my_cam1->setUpVector(QVector3D(0,1,0));
+    //my_cam1->setCenter(QVector3D(0,0,0));
+    my_cam1->setCenter(QVector3D(0,0,120));
+
+    my_cam2 = new QGLCamera(this);
+    my_cam2->setFarPlane(9999);
+    my_cam2->setEye(QVector3D(0,120,0));
+    my_cam2->setUpVector(QVector3D(1,0,0));
+    my_cam2->setCenter(QVector3D(0,0,0));
+
+    setCamera(my_cam1);
 
 //    camera()->setFarPlane(9000);
 //    camera()->setEye(QVector3D(0,-80,-100));
@@ -60,16 +75,18 @@ BulletBoxView::BulletBoxView(const QSurfaceFormat &format, QWindow *parent) :
 
     my_shader = new QGLShaderProgramEffect;
     my_shader->setVertexShaderFromFile("../standard.vsh");
-    my_shader->setFragmentShaderFromFile("../standard.fsh");
+    my_shader->setFragmentShaderFromFile("../fractals_julia.fsh");
 
     my_mat->setTextureUrl(QUrl("qrc://textures/qt.png"));
-    my_mat->setEmittedLight(QColor(0,111,0));
-    my_mat->setTextureCombineMode(QGLMaterial::Replace);
+    my_mat->setColor(QColor(Qt::darkGreen));
+    my_mat->setTextureCombineMode(QGLMaterial::Modulate);
     my_mat->setShininess(64);
+
     initPhysicWorld();
     //spawnGround();
     spawnBoxContainer();
     startPhysicWorld();
+
 }
 
 qint64 BulletBoxView::getDeltaTimeMiliseconds() const
@@ -130,25 +147,24 @@ void BulletBoxView::startPhysicWorld()
 
 void BulletBoxView::stepPhysicalWorld()
 {
-    //qDebug() << __PRETTY_FUNCTION__;
-
     float dt = float(getDeltaTimeMiliseconds()) * 0.001;
     my_lastTimeStamp = QDateTime::currentMSecsSinceEpoch();
-    //spinBoxContainer();
-    my_dynamicsWorld->stepSimulation(dt,10);
+    my_dynamicsWorld->stepSimulation(dt,5);
+    spinBoxContainer();
     update();
 }
 
 void BulletBoxView::spinBoxContainer(float dt)
 {
-    if(my_spinAngle >= M_PI) my_spinAngle = 0.f;
-    my_spinAngle += M_PI_4*dt;
+    if(my_spinAngle == M_PI)
+    {
+        qDebug() << __PRETTY_FUNCTION__ << "REVOLUTION";
+        my_spinAngle = 0.0f;
+    }
+    my_spinAngle += M_PI_4/90.0;
     btQuaternion q(btVector3(0,0,1),my_spinAngle);
     my_kinematicMotionState->setTransform(btTransform(q));
-
 }
-
-#define HALF_BOXCONTAINER_THICKNESS 0.5
 
 void BulletBoxView::spawnBoxContainer()
 {
@@ -168,7 +184,7 @@ void BulletBoxView::spawnBoxContainer()
     btCompoundShape* compoundShape = new btCompoundShape();
     float mass = 10.0f;
     btVector3 inertia(0, 0, 0);
-    btTransform     startTransform;
+    btTransform startTransform;
     startTransform.setIdentity();
 
     startTransform.setOrigin(btVector3(0,-HALF_BOXCONTAINER_SIZE - HALF_BOXCONTAINER_THICKNESS,0));
@@ -197,10 +213,9 @@ void BulletBoxView::spawnBoxContainer()
     my_dynamicsWorld->addRigidBody(body);
 }
 
-
 void BulletBoxView::spawnBox()
 {
-    if(my_nodes.size() >= 250) return;
+    if(my_nodes.size() >= 150) return;
     Bullet3DBox* box = new Bullet3DBox(my_mat);
     box->getSceneNode()->setUserEffect(my_shader);
     my_nodes.append(box);
@@ -215,6 +230,9 @@ void BulletBoxView::spawnGround()
                     groundRigidBodyCI(0,my_groundMotionState,my_groundShape,btVector3(0,0,0));
     my_groundRigidBody = new btRigidBody(groundRigidBodyCI);
     my_dynamicsWorld->addRigidBody(my_groundRigidBody);
+
+    my_groundRigidBody->setFriction(0);
+    my_groundRigidBody->setRestitution(0);
 
     QGLBuilder builder;
     builder.addPane(QSizeF(100,100));
@@ -254,21 +272,83 @@ void BulletBoxView::depthSortVisibleObjects(QGLPainter* painter)
         if(!painter->isCullable(node->boundingBox()))
             my_zSortedVisibleGLNodes.insert(modelViewMatrix.map(node->position()).z(), node);
     }
-    qDebug() << __PRETTY_FUNCTION__ << "Watching visible/total nodes" << my_zSortedVisibleGLNodes.size() << "/" << my_nodes.size();
 #ifdef COUNT_TIME
+    qDebug() << __PRETTY_FUNCTION__ << "Watching visible/total nodes" << my_zSortedVisibleGLNodes.size() << "/" << my_nodes.size();
     qDebug() << __PRETTY_FUNCTION__ << "Time for sorting objects in ms "<< (QDateTime::currentDateTime().currentMSecsSinceEpoch() - before);
 #endif
 }
 
 void BulletBoxView::initializeGL(QGLPainter *painter)
 {
+    qDebug() << __PRETTY_FUNCTION__;
     QGLView::initializeGL(painter);
     glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST );
 }
 
+void BulletBoxView::resizeGL(int w, int h)
+{
+    QGLView::resizeGL(w,h);
+    if(my_subSurface)
+        my_subSurface->setRegion(QRect(QPoint(0,0), QSize(w,h)/2));
+}
+
+void BulletBoxView::keyPressEvent(QKeyEvent *e)
+{
+    qDebug() << __PRETTY_FUNCTION__ << e->key();
+    switch(e->key())
+    {
+    case Qt::Key_Up:
+        camera()->translateEye(0,0,1);
+        camera()->translateCenter(0,0,1);
+        //newEye = camera()->center() + inverseModelView.map(QVector3D(0,0,-1));
+        break;
+    case Qt::Key_Down:
+        camera()->translateEye(0,0,-1);
+        camera()->translateCenter(0,0,-1);
+        //newEye = camera()->center() + inverseModelView.map(QVector3D(0,0,1));
+        break;
+    case Qt::Key_Left:
+        camera()->translateEye(-1,0,0);
+        camera()->translateCenter(-1,0,0);
+        //newEye  = camera()->center() + inverseModelView.map(QVector3D(-1,0,0));
+        break;
+    case Qt::Key_Right:
+        camera()->translateEye(1,0,0);
+        camera()->translateCenter(1,0,0);
+        //newEye = camera()->center() + inverseModelView.map(QVector3D(1,0,0));
+        break;
+    case Qt::Key_A:
+        camera()->translateEye(0,1,0);
+        camera()->translateCenter(0,1,0);
+        //newEye = camera()->center() + inverseModelView.map(QVector3D(0,1,0));
+        break;
+    case Qt::Key_Q:
+        camera()->translateEye(0,-1,0);
+        camera()->translateCenter(0,-1,0);
+        //newEye = camera()->center() + inverseModelView.map(QVector3D(0,-1,0));
+        break;
+    default:
+        qDebug() << __PRETTY_FUNCTION__ << "ignoring KeyEvent";
+        e->ignore();
+        return;
+    }
+    qDebug() << __PRETTY_FUNCTION__ << camera()->eye();
+    e->accept();
+}
+
+void BulletBoxView::keyReleaseEvent(QKeyEvent *e)
+{
+    qDebug() << __PRETTY_FUNCTION__;
+    e->accept();
+}
+
 void BulletBoxView::earlyPaintGL(QGLPainter *painter)
 {
-    QGLView::earlyPaintGL(painter);
+    //glClearColor(255,255,255,0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if(!my_subSurface)
+        my_subSurface = new QGLSubsurface(painter->currentSurface(),QRect(QPoint(0,0),QWindow::size()/2));
+
     depthSortVisibleObjects(painter);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
@@ -277,14 +357,12 @@ void BulletBoxView::earlyPaintGL(QGLPainter *painter)
 
 void BulletBoxView::paintGL(QGLPainter *painter)
 {
-
-    //my_spiningBoxNode->draw(painter);
-
 #ifdef COUNT_TIME
     qint64 before = QDateTime::currentDateTime().currentMSecsSinceEpoch();
 #endif
-    QMapIterator<qreal, QGLSceneNode*> i(my_zSortedVisibleGLNodes);
-    while(i.hasNext()) i.next().value()->draw(painter);
+
+    drawMainSurface(painter);
+    drawSubSurface(painter);
 
 #ifdef COUNT_TIME
     qDebug() << __PRETTY_FUNCTION__ << "Time for painting objects in ms "<< (QDateTime::currentDateTime().currentMSecsSinceEpoch() - before);
@@ -292,6 +370,21 @@ void BulletBoxView::paintGL(QGLPainter *painter)
 #ifdef COUNT_FPS
     ++my_fps;
 #endif
+}
+
+void BulletBoxView::drawMainSurface(QGLPainter *painter)
+{
+    QMapIterator<qreal, QGLSceneNode*> i(my_zSortedVisibleGLNodes);
+    while(i.hasNext()) i.next().value()->draw(painter);
+}
+
+void BulletBoxView::drawSubSurface(QGLPainter *painter)
+{
+    painter->setCamera(my_cam2);
+    painter->pushSurface(my_subSurface);
+    QMapIterator<qreal, QGLSceneNode*> i(my_zSortedVisibleGLNodes);
+    while(i.hasNext()) i.next().value()->draw(painter);
+    painter->popSurface();
 }
 
 #ifdef COUNT_FPS

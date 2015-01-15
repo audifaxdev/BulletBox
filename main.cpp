@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
     format.setSamples(16);
 
     BulletBoxView bulletBox(format);
-    bulletBox.resize(1280,1024);
+    bulletBox.resize(640,480);
     bulletBox.show();
 
     return a.exec();
